@@ -74,8 +74,8 @@ fn test_type_names() {
     ("Send", "SendType"),
     ("Sync", "SyncType"),
     ("Type", "TypeType"),
-    // Self is a keyword, so it gets raw identifier prefix
-    ("Self", "r#Self"),
+    // Self is a keyword that cannot be a raw identifier, so it gets Type suffix
+    ("Self", "SelfType"),
     // Raw identifier prefixes should be stripped and PascalCased
     ("r#move", "Move"),
     ("r#static", "Static"),
