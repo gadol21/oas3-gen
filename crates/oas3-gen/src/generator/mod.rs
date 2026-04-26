@@ -1,7 +1,7 @@
 #![allow(clippy::struct_excessive_bools)]
 
 pub(crate) mod ast;
-pub(crate) mod codegen;
+pub mod codegen;
 pub(crate) mod converter;
 pub mod metrics;
 pub mod mode;

@@ -1,16 +1,6 @@
-#![allow(clippy::doc_markdown)]
-#![allow(clippy::missing_errors_doc)]
-#![allow(clippy::too_many_lines)]
 use clap::Parser;
 
-use crate::ui::{Cli, Colors, Commands, ListCommands, colors};
-
-mod generator;
-mod ui;
-mod utils;
-
-#[cfg(test)]
-mod tests;
+use oas3_gen::ui::{Cli, Colors, Commands, ListCommands, colors, commands};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -19,22 +9,13 @@ async fn main() -> anyhow::Result<()> {
 
   match cli.command {
     Commands::List { list_command } => match list_command {
-      ListCommands::Operations { input } => ui::commands::list_operations(&input, &colors).await?,
+      ListCommands::Operations { input } => commands::list_operations(&input, &colors).await?,
     },
     Commands::Generate(command) => {
-      let config = ui::commands::GenerateConfig::from_command(command)?;
-      ui::commands::generate_code(config, &colors).await?;
+      let config = commands::GenerateConfig::from_command(command)?;
+      commands::generate_code(config, &colors).await?;
     }
   }
 
   Ok(())
-}
-
-#[cfg(test)]
-#[path = "../fixtures"]
-mod fixtures {
-  pub mod intersection_union;
-  pub mod petstore;
-  pub mod petstore_server;
-  pub mod union_serde;
 }
