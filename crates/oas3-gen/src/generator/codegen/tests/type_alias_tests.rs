@@ -56,6 +56,7 @@ fn test_type_alias_with_docs() {
     name: TypeAliasToken::new("UserId"),
     docs: Documentation::from_lines(["Unique identifier for a user.", "Format: UUID string."]),
     target: TypeRef::new(RustPrimitive::String),
+    requires_lifetime: false,
   };
 
   let tokens = TypeAliasFragment::new(def, Visibility::Public).into_token_stream();
@@ -147,6 +148,7 @@ fn test_type_alias_custom_types() {
     name: TypeAliasToken::new("PetList"),
     docs: Documentation::from_lines(["List of pets from the API."]),
     target: TypeRef::new(RustPrimitive::Custom("Vec<Pet>".into())),
+    requires_lifetime: false,
   };
 
   let tokens = TypeAliasFragment::new(def, Visibility::Crate).into_token_stream();

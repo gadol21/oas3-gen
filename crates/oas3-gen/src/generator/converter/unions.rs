@@ -13,7 +13,7 @@ use super::{
 };
 use crate::{
   generator::{
-    ast::{Documentation, EnumVariantToken, RustType},
+    ast::{Documentation, EnumVariantToken, RustPrimitive, RustType, SerdeAttribute, TypeAliasDef, TypeAliasToken, TypeRef},
     converter::{ConverterContext, discriminator::DiscriminatorConverter},
     naming::{identifiers::ensure_unique, inference::strip_common_affixes},
   },
@@ -162,7 +162,7 @@ impl UnionConverter {
 
     variants = strip_common_affixes(variants);
 
-    let methods = if self.context.config().no_helpers() {
+    let methods = if self.context.config().no_helpers() || self.context.config().zero_copy_enabled() {
       vec![]
     } else {
       self.method_generator.build_constructors(&variants, &inline_types, name)
@@ -180,7 +180,26 @@ impl UnionConverter {
           .call()
       });
 
-    Ok(ConversionOutput::with_inline_types(main_enum, inline_types))
+    let main_type = if self.context.config().zero_copy_enabled() {
+      if let RustType::Enum(ref def) = main_enum {
+        if def.serde_attrs.contains(&SerdeAttribute::Untagged) {
+          RustType::TypeAlias(TypeAliasDef {
+            name: TypeAliasToken::from_raw(name),
+            docs: Documentation::from_optional(schema.description.as_ref()),
+            target: TypeRef::new(RustPrimitive::RawValue),
+            requires_lifetime: false,
+          })
+        } else {
+          main_enum
+        }
+      } else {
+        main_enum
+      }
+    } else {
+      main_enum
+    };
+
+    Ok(ConversionOutput::with_inline_types(main_type, inline_types))
   }
 
   /// Extracts variant specifications from raw union branch references.

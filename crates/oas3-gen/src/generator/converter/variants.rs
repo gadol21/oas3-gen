@@ -5,7 +5,7 @@ use oas3::spec::ObjectSchema;
 use super::{ConversionOutput, type_resolver::TypeResolver, union_types::UnionVariantSpec};
 use crate::{
   generator::{
-    ast::{Documentation, EnumVariantToken, SerdeAttribute, TypeRef, VariantContent, VariantDef},
+    ast::{Documentation, EnumVariantToken, RustPrimitive, SerdeAttribute, TypeRef, VariantContent, VariantDef},
     converter::ConverterContext,
     naming::{identifiers::to_rust_type_name, inference::NormalizedVariant},
   },
@@ -106,6 +106,10 @@ impl VariantBuilder {
 
     let variant_label = variant_name.to_string();
 
+    if let Some(output) = self.try_build_single_property_variant(&resolved_schema, variant_name)? {
+      return Ok(output);
+    }
+
     let content_output = if resolved_schema.properties.is_empty() {
       if let Some(output) = self.build_array_content(enum_name, &variant_label, &resolved_schema)? {
         output
@@ -129,6 +133,66 @@ impl VariantBuilder {
         .build(),
       content_output.inline_types,
     ))
+  }
+
+  fn try_build_single_property_variant(
+    &self,
+    schema: &ObjectSchema,
+    variant_name: &EnumVariantToken,
+  ) -> anyhow::Result<Option<ConversionOutput<VariantDef>>> {
+    if schema.properties.len() != 1 {
+      return Ok(None);
+    }
+
+    let (prop_name, prop_ref) = schema.properties.iter().next().unwrap();
+
+    let is_tagged_wrapper = schema
+      .title
+      .as_ref()
+      .is_some_and(|title| title == prop_name);
+    if !is_tagged_wrapper {
+      return Ok(None);
+    }
+
+    let spec = self.context.graph().spec();
+    let prop_schema = prop_ref.resolve(spec)?;
+
+    let mut type_ref = if let Some(ref_name) = crate::utils::extract_schema_ref_name(prop_ref) {
+      TypeRef::new(to_rust_type_name(&ref_name)).unwrap_option()
+    } else {
+      self.type_resolver.resolve_type(&prop_schema)?.unwrap_option()
+    };
+
+    if self.context.config().zero_copy_enabled() {
+      let is_owned = matches!(
+        type_ref.base_type,
+        RustPrimitive::String | RustPrimitive::Value
+      ) || type_ref
+        .base_type
+        .to_string()
+        .starts_with("std::collections::HashMap<String,");
+      if is_owned {
+        type_ref.base_type = RustPrimitive::RawValue;
+        type_ref.is_array = false;
+        type_ref.boxed = false;
+      }
+    }
+
+    let mut serde_attrs = vec![];
+    let rust_variant_name = variant_name.to_string();
+    if prop_name != &rust_variant_name {
+      serde_attrs.push(SerdeAttribute::Rename(prop_name.clone()));
+    }
+
+    Ok(Some(ConversionOutput::new(
+      VariantDef::builder()
+        .name(variant_name.clone())
+        .content(VariantContent::Tuple(vec![type_ref]))
+        .serde_attrs(serde_attrs)
+        .docs(Documentation::from_optional(prop_schema.description.as_ref()))
+        .deprecated(schema.deprecated.unwrap_or(false))
+        .build(),
+    )))
   }
 
   /// Builds a unit variant for schemas that define a constant value.

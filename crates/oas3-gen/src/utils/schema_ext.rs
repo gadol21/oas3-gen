@@ -410,7 +410,17 @@ impl SchemaExt for ObjectSchema {
   fn union_variants_with_kind(&self) -> Option<&[ObjectOrReference<ObjectSchema>]> {
     match (!self.one_of.is_empty(), !self.any_of.is_empty()) {
       (true, false) => Some(&self.one_of),
-      (false, true) => Some(&self.any_of),
+      (false, true) => {
+        let is_validation_only = self.any_of.iter().all(|v| {
+          matches!(v, ObjectOrReference::Object(s) if s.properties.is_empty()
+            && s.one_of.is_empty()
+            && s.any_of.is_empty()
+            && s.all_of.is_empty()
+            && s.schema_type.is_none()
+            && s.additional_properties.is_none())
+        });
+        if is_validation_only { None } else { Some(&self.any_of) }
+      }
       _ => None,
     }
   }

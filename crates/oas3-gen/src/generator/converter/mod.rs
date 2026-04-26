@@ -34,7 +34,7 @@ pub(crate) use type_usage_recorder::SerdeUsageRecorder;
 
 use crate::{
   generator::{
-    ast::{Documentation, EnumToken, RustType, TypeAliasDef, TypeAliasToken, TypeRef},
+    ast::{Documentation, EnumToken, RustPrimitive, RustType, TypeAliasDef, TypeAliasToken, TypeRef},
     converter::{
       cache::SharedSchemaCache,
       discriminator::DiscriminatorConverter,
@@ -85,6 +85,14 @@ pub enum ODataPolicy {
   #[default]
   Disabled,
   /// Enable OData support (makes `@odata.*` fields optional).
+  Enabled,
+}
+
+/// Policy for zero-copy deserialization using `&'a RawValue`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ZeroCopyPolicy {
+  #[default]
+  Disabled,
   Enabled,
 }
 
@@ -141,6 +149,10 @@ pub struct CodegenConfig {
   #[builder(default)]
   pub enable_builders: bool,
   #[builder(default)]
+  pub zero_copy: ZeroCopyPolicy,
+  #[builder(default)]
+  pub skip_file_header: bool,
+  #[builder(default)]
   pub customizations: HashMap<String, String>,
 }
 
@@ -190,6 +202,11 @@ impl CodegenConfig {
   #[must_use]
   pub fn enable_builders(&self) -> bool {
     self.enable_builders
+  }
+
+  #[must_use]
+  pub fn zero_copy_enabled(&self) -> bool {
+    self.zero_copy == ZeroCopyPolicy::Enabled
   }
 }
 
@@ -331,6 +348,23 @@ impl SchemaConverter {
     self.context.cache().contains_schema_name(name)
   }
 
+  fn apply_zero_copy_transform(&self, mut type_ref: TypeRef) -> TypeRef {
+    if !self.context.config().zero_copy_enabled() {
+      return type_ref;
+    }
+    let is_owned = matches!(type_ref.base_type, RustPrimitive::String | RustPrimitive::Value)
+      || type_ref
+        .base_type
+        .to_string()
+        .starts_with("std::collections::HashMap<String,");
+    if is_owned {
+      type_ref.base_type = RustPrimitive::RawValue;
+      type_ref.is_array = false;
+      type_ref.boxed = false;
+    }
+    type_ref
+  }
+
   /// Converts a named OpenAPI schema into one or more Rust type definitions.
   ///
   /// Routes the schema to the appropriate specialized converter based on its structure:
@@ -376,21 +410,24 @@ impl SchemaConverter {
     }
 
     if let Some(output) = self.try_array_alias(name, schema)? {
+      let target = self.apply_zero_copy_transform(output.result);
       let alias = RustType::TypeAlias(TypeAliasDef {
         name: TypeAliasToken::from_raw(name),
         docs: Documentation::from_optional(schema.description.as_ref()),
-        target: output.result,
+        target,
+        requires_lifetime: false,
       });
       let mut result = vec![alias];
       result.extend(output.inline_types);
       return Ok(result);
     }
 
-    let type_ref = self.type_resolver.resolve_type(schema)?;
+    let type_ref = self.apply_zero_copy_transform(self.type_resolver.resolve_type(schema)?);
     Ok(vec![RustType::TypeAlias(TypeAliasDef {
       name: TypeAliasToken::from_raw(name),
       docs: Documentation::from_optional(schema.description.as_ref()),
       target: type_ref,
+      requires_lifetime: false,
     })])
   }
 

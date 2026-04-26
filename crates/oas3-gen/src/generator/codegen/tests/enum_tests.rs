@@ -45,7 +45,7 @@ fn test_basic_enum_generation() {
     ],
   );
 
-  let code = EnumFragment::new(def, Visibility::Public, GenerationTarget::Client)
+  let code = EnumFragment::new(def, Visibility::Public, GenerationTarget::Client, Default::default())
     .into_token_stream()
     .to_string();
 
@@ -76,7 +76,7 @@ fn test_simple_enum_display_impl() {
     ],
   );
 
-  let code = EnumFragment::new(simple_def, Visibility::Public, GenerationTarget::Client)
+  let code = EnumFragment::new(simple_def, Visibility::Public, GenerationTarget::Client, Default::default())
     .into_token_stream()
     .to_string();
 
@@ -122,7 +122,7 @@ fn test_simple_enum_display_impl_with_serde_rename() {
     ..Default::default()
   };
 
-  let code = EnumFragment::new(renamed_def, Visibility::Public, GenerationTarget::Client)
+  let code = EnumFragment::new(renamed_def, Visibility::Public, GenerationTarget::Client, Default::default())
     .into_token_stream()
     .to_string();
 
@@ -161,7 +161,7 @@ fn test_tuple_enum_no_display_impl() {
     ..Default::default()
   };
 
-  let code = EnumFragment::new(tuple_def, Visibility::Public, GenerationTarget::Client)
+  let code = EnumFragment::new(tuple_def, Visibility::Public, GenerationTarget::Client, Default::default())
     .into_token_stream()
     .to_string();
 
@@ -184,7 +184,7 @@ fn test_enum_with_docs() {
     ..Default::default()
   };
 
-  let code = EnumFragment::new(def, Visibility::Public, GenerationTarget::Client)
+  let code = EnumFragment::new(def, Visibility::Public, GenerationTarget::Client, Default::default())
     .into_token_stream()
     .to_string();
 
@@ -237,7 +237,7 @@ fn test_enum_tuple_variants() {
 
   for (case_name, variants, expected_content) in cases {
     let def = make_simple_enum("Value", variants);
-    let code = EnumFragment::new(def, Visibility::Public, GenerationTarget::Client)
+    let code = EnumFragment::new(def, Visibility::Public, GenerationTarget::Client, Default::default())
       .into_token_stream()
       .to_string();
 
@@ -266,7 +266,7 @@ fn test_enum_variant_attributes() {
     ..Default::default()
   };
 
-  let deprecated_code = EnumFragment::new(deprecated_def, Visibility::Public, GenerationTarget::Client)
+  let deprecated_code = EnumFragment::new(deprecated_def, Visibility::Public, GenerationTarget::Client, Default::default())
     .into_token_stream()
     .to_string();
   assert!(
@@ -284,7 +284,7 @@ fn test_enum_variant_attributes() {
     ..Default::default()
   };
 
-  let outer_attrs_code = EnumFragment::new(outer_attrs_def, Visibility::Public, GenerationTarget::Client)
+  let outer_attrs_code = EnumFragment::new(outer_attrs_def, Visibility::Public, GenerationTarget::Client, Default::default())
     .into_token_stream()
     .to_string();
   assert!(
@@ -339,7 +339,7 @@ fn test_enum_serde_attributes() {
   ];
 
   for (case_name, def, expected_attrs) in cases {
-    let code = EnumFragment::new(def, Visibility::Public, GenerationTarget::Client)
+    let code = EnumFragment::new(def, Visibility::Public, GenerationTarget::Client, Default::default())
       .into_token_stream()
       .to_string()
       .clone();
@@ -372,7 +372,7 @@ fn test_case_insensitive_enum() {
     ..Default::default()
   };
 
-  let code = EnumFragment::new(base_def, Visibility::Public, GenerationTarget::Client)
+  let code = EnumFragment::new(base_def, Visibility::Public, GenerationTarget::Client, Default::default())
     .into_token_stream()
     .to_string();
 
@@ -413,7 +413,7 @@ fn test_case_insensitive_enum() {
     ..Default::default()
   };
 
-  let fallback_code = EnumFragment::new(fallback_def, Visibility::Public, GenerationTarget::Client)
+  let fallback_code = EnumFragment::new(fallback_def, Visibility::Public, GenerationTarget::Client, Default::default())
     .into_token_stream()
     .to_string();
   assert!(
@@ -443,7 +443,7 @@ fn test_case_insensitive_enum_deserialize_only() {
     ..Default::default()
   };
 
-  let code = EnumFragment::new(def, Visibility::Public, GenerationTarget::Client)
+  let code = EnumFragment::new(def, Visibility::Public, GenerationTarget::Client, Default::default())
     .into_token_stream()
     .to_string();
 
@@ -504,7 +504,7 @@ fn test_enum_visibility() {
       Visibility::Public => "Public",
     };
     let def = make_simple_enum(name, vec![make_unit_variant("A"), make_unit_variant("B")]);
-    let code = EnumFragment::new(def, visibility, GenerationTarget::Client)
+    let code = EnumFragment::new(def, visibility, GenerationTarget::Client, Default::default())
       .into_token_stream()
       .to_string();
 
@@ -542,7 +542,7 @@ fn test_enum_constructor_methods() {
     ..Default::default()
   };
 
-  let simple_code = EnumFragment::new(simple_def, Visibility::Public, GenerationTarget::Client)
+  let simple_code = EnumFragment::new(simple_def, Visibility::Public, GenerationTarget::Client, Default::default())
     .into_token_stream()
     .to_string();
   assert!(simple_code.contains("impl RequestBody"), "should have impl block");
@@ -581,7 +581,7 @@ fn test_enum_constructor_methods() {
     ..Default::default()
   };
 
-  let param_code = EnumFragment::new(param_def, Visibility::Public, GenerationTarget::Client)
+  let param_code = EnumFragment::new(param_def, Visibility::Public, GenerationTarget::Client, Default::default())
     .into_token_stream()
     .to_string();
   assert!(
@@ -620,7 +620,7 @@ fn test_enum_constructor_methods_without_docs() {
     ..Default::default()
   };
 
-  let code = EnumFragment::new(def, Visibility::Public, GenerationTarget::Client)
+  let code = EnumFragment::new(def, Visibility::Public, GenerationTarget::Client, Default::default())
     .into_token_stream()
     .to_string();
   assert!(code.contains("pub fn json () -> Self"), "should have json constructor");
@@ -672,7 +672,7 @@ fn test_known_value_constructor_methods() {
     ..Default::default()
   };
 
-  let code = EnumFragment::new(def, Visibility::Public, GenerationTarget::Client)
+  let code = EnumFragment::new(def, Visibility::Public, GenerationTarget::Client, Default::default())
     .into_token_stream()
     .to_string();
   assert!(
@@ -711,7 +711,7 @@ fn test_discriminated_enum() {
     .serde_mode(SerdeMode::Both)
     .build();
 
-  let code = DiscriminatedEnumFragment::new(without_fallback, Visibility::Public)
+  let code = DiscriminatedEnumFragment::new(without_fallback, Visibility::Public, Default::default())
     .into_token_stream()
     .to_string();
   let assertions_without = [
@@ -764,7 +764,7 @@ fn test_discriminated_enum() {
     .serde_mode(SerdeMode::Both)
     .build();
 
-  let code_with = DiscriminatedEnumFragment::new(with_fallback, Visibility::Public)
+  let code_with = DiscriminatedEnumFragment::new(with_fallback, Visibility::Public, Default::default())
     .into_token_stream()
     .to_string();
   let fallback_assertions = [
@@ -802,7 +802,7 @@ fn test_discriminated_enum_serialize_only() {
     .serde_mode(SerdeMode::SerializeOnly)
     .build();
 
-  let code = DiscriminatedEnumFragment::new(def, Visibility::Public)
+  let code = DiscriminatedEnumFragment::new(def, Visibility::Public, Default::default())
     .into_token_stream()
     .to_string();
   assert!(
@@ -831,7 +831,7 @@ fn test_discriminated_enum_deserialize_only() {
     .serde_mode(SerdeMode::DeserializeOnly)
     .build();
 
-  let code = DiscriminatedEnumFragment::new(def, Visibility::Public)
+  let code = DiscriminatedEnumFragment::new(def, Visibility::Public, Default::default())
     .into_token_stream()
     .to_string();
   assert!(
@@ -849,6 +849,7 @@ fn test_response_enum_generation() {
   let def = ResponseEnumDef {
     name: EnumToken::new("GetUserResponse"),
     docs: Documentation::from_lines(["Response for GET /users/{id}"]),
+    requires_lifetime: false,
     variants: vec![
       ResponseVariant::builder()
         .status_code(StatusCodeToken::Ok200)
@@ -926,7 +927,7 @@ fn test_relaxed_wrapper_enum_generates_display() {
     ..Default::default()
   };
 
-  let code = EnumFragment::new(def, Visibility::Public, GenerationTarget::Client)
+  let code = EnumFragment::new(def, Visibility::Public, GenerationTarget::Client, Default::default())
     .into_token_stream()
     .to_string();
 
@@ -968,7 +969,7 @@ fn test_non_simple_enum_without_generate_display_has_no_display() {
     ..Default::default()
   };
 
-  let code = EnumFragment::new(def, Visibility::Public, GenerationTarget::Client)
+  let code = EnumFragment::new(def, Visibility::Public, GenerationTarget::Client, Default::default())
     .into_token_stream()
     .to_string();
 

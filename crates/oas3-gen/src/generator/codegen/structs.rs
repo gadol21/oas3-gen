@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{collections::{BTreeMap, BTreeSet}, rc::Rc};
 
 use proc_macro2::TokenStream;
 use quote::{ToTokens, quote};
@@ -14,8 +14,8 @@ use super::{
 use crate::generator::{
   ast::{
     BuilderField, BuilderNestedStruct, ContentCategory, DerivesProvider, Documentation, FieldDef, MethodKind,
-    MethodNameToken, RegexKey, ResponseStatusCategory, ResponseVariantCategory, RustPrimitive, StatusCodeToken,
-    StatusHandler, StructDef, StructKind, StructMethod, TypeRef, ValidationAttribute,
+    MethodNameToken, RegexKey, ResponseStatusCategory, ResponseVariantCategory, RustPrimitive, SerdeAttribute,
+    StatusCodeToken, StatusHandler, StructDef, StructKind, StructMethod, TypeRef, ValidationAttribute,
     tokens::{ConstToken, EnumToken, EnumVariantToken},
   },
   codegen::{
@@ -32,6 +32,7 @@ pub(crate) struct StructFragment {
   regex_lookup: BTreeMap<RegexKey, ConstToken>,
   visibility: Visibility,
   target: GenerationTarget,
+  lifetime_types: Rc<BTreeSet<String>>,
 }
 
 impl StructFragment {
@@ -40,19 +41,21 @@ impl StructFragment {
     regex_lookup: BTreeMap<RegexKey, ConstToken>,
     visibility: Visibility,
     target: GenerationTarget,
+    lifetime_types: Rc<BTreeSet<String>>,
   ) -> Self {
     Self {
       def,
       regex_lookup,
       visibility,
       target,
+      lifetime_types,
     }
   }
 }
 
 impl ToTokens for StructFragment {
   fn to_tokens(&self, tokens: &mut TokenStream) {
-    let definition = StructDefinitionFragment::new(self.def.clone(), self.regex_lookup.clone(), self.visibility);
+    let definition = StructDefinitionFragment::new(self.def.clone(), self.regex_lookup.clone(), self.visibility, self.lifetime_types.clone());
     let impl_block = StructImplBlockFragment::new(self.def.clone(), self.visibility);
     let header_map = HeaderMapFragment::new(self.def.clone());
 
@@ -80,14 +83,16 @@ pub(crate) struct StructDefinitionFragment {
   def: StructDef,
   regex_lookup: BTreeMap<RegexKey, ConstToken>,
   visibility: Visibility,
+  lifetime_types: Rc<BTreeSet<String>>,
 }
 
 impl StructDefinitionFragment {
-  pub(crate) fn new(def: StructDef, regex_lookup: BTreeMap<RegexKey, ConstToken>, visibility: Visibility) -> Self {
+  pub(crate) fn new(def: StructDef, regex_lookup: BTreeMap<RegexKey, ConstToken>, visibility: Visibility, lifetime_types: Rc<BTreeSet<String>>) -> Self {
     Self {
       def,
       regex_lookup,
       visibility,
+      lifetime_types,
     }
   }
 }
@@ -106,15 +111,21 @@ impl ToTokens for StructDefinitionFragment {
       .def
       .fields
       .iter()
-      .map(|f| StructFieldFragment::new(f.clone(), self.def.clone(), self.regex_lookup.clone(), self.visibility))
+      .map(|f| StructFieldFragment::new(f.clone(), self.def.clone(), self.regex_lookup.clone(), self.visibility, self.lifetime_types.clone()))
       .collect();
+
+    let generics = if self.def.requires_lifetime {
+      quote! { <'a> }
+    } else {
+      quote! {}
+    };
 
     tokens.extend(quote! {
       #docs
       #outer_attrs
       #derives
       #serde_attrs
-      #vis struct #name {
+      #vis struct #name #generics {
         #(#fields),*
       }
     });
@@ -127,6 +138,7 @@ pub(crate) struct StructFieldFragment {
   struct_def: StructDef,
   regex_lookup: BTreeMap<RegexKey, ConstToken>,
   visibility: Visibility,
+  lifetime_types: Rc<BTreeSet<String>>,
 }
 
 impl StructFieldFragment {
@@ -135,12 +147,14 @@ impl StructFieldFragment {
     struct_def: StructDef,
     regex_lookup: BTreeMap<RegexKey, ConstToken>,
     visibility: Visibility,
+    lifetime_types: Rc<BTreeSet<String>>,
   ) -> Self {
     Self {
       field,
       struct_def,
       regex_lookup,
       visibility,
+      lifetime_types,
     }
   }
 
@@ -170,20 +184,52 @@ impl ToTokens for StructFieldFragment {
     let name = &self.field.name;
     let docs = generate_docs_for_field(&self.field);
     let vis = &self.visibility;
-    let type_tokens = &self.field.rust_type;
+
+    let is_lifetime_custom = if let RustPrimitive::Custom(ref name) = self.field.rust_type.base_type {
+      self.lifetime_types.contains(name.as_ref())
+    } else {
+      false
+    };
+
+    let needs_borrow = self.struct_def.requires_lifetime
+      && matches!(self.field.rust_type.base_type, RustPrimitive::RawValue)
+      || is_lifetime_custom;
+
+    let type_tokens: TokenStream = if is_lifetime_custom {
+      let name = match &self.field.rust_type.base_type {
+        RustPrimitive::Custom(name) => name,
+        _ => unreachable!(),
+      };
+      let lifetimed_base = format!("{name}<'a>");
+      let lifetimed_type = TypeRef {
+        base_type: RustPrimitive::Custom(lifetimed_base.into()),
+        ..self.field.rust_type.clone()
+      };
+      lifetimed_type.to_token_stream()
+    } else {
+      self.field.rust_type.to_token_stream()
+    };
 
     let (serde_as, serde_attrs) = if matches!(self.struct_def.kind, StructKind::HeaderParams | StructKind::PathParams) {
       (quote! {}, quote! {})
     } else {
+      let mut attrs = self.field.serde_attrs.clone();
+      if needs_borrow {
+        attrs.insert(SerdeAttribute::Borrow);
+      }
       (
         generate_serde_as_attr(self.field.serde_as_attr.as_ref()),
-        generate_serde_attrs(&self.field.serde_attrs),
+        generate_serde_attrs(&attrs),
       )
     };
 
     let validation = self.validation_attrs();
     let deprecated = generate_deprecated_attr(self.field.deprecated);
-    let default_val = generate_field_default_attr(&self.field);
+    let default_val = if self.struct_def.requires_lifetime {
+      quote! {}
+    } else {
+      generate_field_default_attr(&self.field)
+    };
     let builder_attr = generate_builder_attrs(&self.field.builder_attrs);
     let doc_hidden = generate_doc_hidden_attr(self.field.doc_hidden);
 
@@ -226,6 +272,12 @@ impl ToTokens for StructImplBlockFragment {
       .iter()
       .partition(|m| matches!(m.kind, MethodKind::Builder { .. }));
 
+    let (impl_generics, type_generics) = if self.def.requires_lifetime {
+      (quote! { <'a> }, quote! { <'a> })
+    } else {
+      (quote! {}, quote! {})
+    };
+
     if !builder_methods.is_empty() {
       let methods: Vec<TokenStream> = builder_methods
         .into_iter()
@@ -234,7 +286,7 @@ impl ToTokens for StructImplBlockFragment {
 
       tokens.extend(quote! {
         #[bon::bon]
-        impl #name {
+        impl #impl_generics #name #type_generics {
           #(#methods)*
         }
       });
@@ -247,7 +299,7 @@ impl ToTokens for StructImplBlockFragment {
         .collect();
 
       tokens.extend(quote! {
-        impl #name {
+        impl #impl_generics #name #type_generics {
           #(#methods)*
         }
       });

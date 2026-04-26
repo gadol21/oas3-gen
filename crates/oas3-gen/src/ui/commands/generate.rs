@@ -9,7 +9,7 @@ use crossterm::style::Stylize;
 use crate::{
   generator::{
     ClientModMode, ClientMode, CodegenConfig, EnumCasePolicy, EnumDeserializePolicy, EnumHelperPolicy, GenerationMode,
-    GenerationTarget, HeaderScope, ODataPolicy, SchemaScope, ServerModMode, TypesMode,
+    GenerationTarget, HeaderScope, ODataPolicy, SchemaScope, ServerModMode, TypesMode, ZeroCopyPolicy,
     ast::documentation::init_doc_format,
     codegen::{GeneratedFileType, Visibility},
     metrics::GenerationStats,
@@ -43,6 +43,7 @@ pub struct GenerateConfig {
   pub no_helpers: bool,
   pub enable_builders: bool,
   pub doc_format: bool,
+  pub zero_copy: bool,
   pub customizations: HashMap<String, String>,
 }
 
@@ -94,6 +95,11 @@ impl GenerateConfig {
         HeaderScope::ReferencedOnly
       })
       .enable_builders(self.enable_builders)
+      .zero_copy(if self.zero_copy {
+        ZeroCopyPolicy::Enabled
+      } else {
+        ZeroCopyPolicy::Disabled
+      })
       .customizations(self.customizations.clone())
       .build();
 
@@ -167,6 +173,7 @@ impl GenerateConfig {
       all_headers,
       enable_builders,
       doc_format,
+      zero_copy,
       only,
       exclude,
       verbose,
@@ -199,6 +206,7 @@ impl GenerateConfig {
       no_helpers,
       enable_builders,
       doc_format,
+      zero_copy,
       customizations,
     })
   }

@@ -139,6 +139,10 @@ impl Orchestrator {
     rust_types.extend(operation_results.types);
     rust_types.extend(context.cache.borrow_mut().take_types());
 
+    if context.config.zero_copy_enabled() {
+      Self::propagate_lifetimes(&mut rust_types);
+    }
+
     stats.record_orphaned_schemas(if let Some(ref schemas) = filtered_schemas {
       let total = schema_graph.keys().len();
       total.saturating_sub(schemas.len())
@@ -160,6 +164,80 @@ impl Orchestrator {
       unique_headers: operation_results.unique_headers.into_iter().collect::<Vec<_>>(),
       stats,
       config: context.config.clone(),
+    }
+  }
+
+  fn propagate_lifetimes(rust_types: &mut [RustType]) {
+    use super::ast::types::RustPrimitive;
+
+    for ty in rust_types.iter_mut() {
+      ty.set_requires_lifetime_if_needed();
+    }
+
+    let refs_lifetime = |base: &RustPrimitive, set: &HashSet<String>| -> bool {
+      if let RustPrimitive::Custom(name) = base {
+        set.contains(name.as_ref())
+      } else {
+        false
+      }
+    };
+
+    loop {
+      let lifetime_set = rust_types
+        .iter()
+        .filter(|t| match t {
+          RustType::Struct(d) => d.requires_lifetime,
+          RustType::Enum(d) => d.requires_lifetime,
+          RustType::DiscriminatedEnum(d) => d.requires_lifetime,
+          RustType::ResponseEnum(d) => d.requires_lifetime,
+          RustType::TypeAlias(d) => d.requires_lifetime,
+        })
+        .map(|t| t.type_name().to_string())
+        .collect::<HashSet<_>>();
+
+      let mut changed = false;
+      for ty in rust_types.iter_mut() {
+        let (needs, already) = match ty {
+          RustType::Struct(d) => (
+            d.fields.iter().any(|f| refs_lifetime(&f.rust_type.base_type, &lifetime_set)),
+            d.requires_lifetime,
+          ),
+          RustType::Enum(d) => (
+            d.variants.iter().any(|v| {
+              v.content
+                .tuple_types()
+                .is_some_and(|types| types.iter().any(|t| refs_lifetime(&t.base_type, &lifetime_set)))
+            }),
+            d.requires_lifetime,
+          ),
+          RustType::DiscriminatedEnum(d) => {
+            let needs = d.variants.iter().any(|v| refs_lifetime(&v.type_name.base_type, &lifetime_set))
+              || d.fallback.as_ref().is_some_and(|v| refs_lifetime(&v.type_name.base_type, &lifetime_set));
+            (needs, d.requires_lifetime)
+          }
+          RustType::ResponseEnum(d) => (
+            d.variants
+              .iter()
+              .any(|v| v.schema_type.as_ref().is_some_and(|t| refs_lifetime(&t.base_type, &lifetime_set))),
+            d.requires_lifetime,
+          ),
+          RustType::TypeAlias(d) => (refs_lifetime(&d.target.base_type, &lifetime_set), d.requires_lifetime),
+        };
+        if needs && !already {
+          match ty {
+            RustType::Struct(d) => d.requires_lifetime = true,
+            RustType::Enum(d) => d.requires_lifetime = true,
+            RustType::DiscriminatedEnum(d) => d.requires_lifetime = true,
+            RustType::ResponseEnum(d) => d.requires_lifetime = true,
+            RustType::TypeAlias(d) => d.requires_lifetime = true,
+          }
+          changed = true;
+        }
+      }
+
+      if !changed {
+        break;
+      }
     }
   }
 }

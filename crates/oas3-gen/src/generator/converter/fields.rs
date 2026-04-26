@@ -12,8 +12,8 @@ use super::{ConversionOutput, type_resolver::TypeResolver};
 use crate::{
   generator::{
     ast::{
-      FieldDef, FieldNameToken, RustPrimitive, RustType, SerdeAsFieldAttr, SerdeAttribute, StructKind, TypeRef,
-      ValidationAttribute,
+      Documentation, FieldDef, FieldNameToken, RustPrimitive, RustType, SerdeAsFieldAttr, SerdeAttribute, StructKind,
+      TypeRef, ValidationAttribute,
     },
     converter::ConverterContext,
     schema_registry::DiscriminatorMapping,
@@ -134,7 +134,18 @@ impl FieldConverter {
         Schema::Boolean(b) if !b.0 => {}
         Schema::Object(_) | Schema::Boolean(_) => {
           let value_type = self.type_resolver.additional_properties_type(additional)?;
-          fields.push(FieldDef::builder().additional_properties(&value_type).build());
+          if self.context.config().zero_copy_enabled() {
+            fields.push(
+              FieldDef::builder()
+                .name(FieldNameToken::from_raw("additional_properties"))
+                .docs(Documentation::from_lines(["Additional properties not defined in the schema."]))
+                .rust_type(TypeRef::new(RustPrimitive::RawValue))
+                .serde_attrs(BTreeSet::from([SerdeAttribute::Flatten]))
+                .build(),
+            );
+          } else {
+            fields.push(FieldDef::builder().additional_properties(&value_type).build());
+          }
         }
       }
     }
@@ -178,6 +189,8 @@ impl FieldConverter {
       || (is_discriminator && !discriminator_has_enum)
       || is_odata_optional;
 
+    let resolved_type = self.apply_zero_copy_transform(resolved_type);
+
     let final_type = if should_be_optional && !resolved_type.nullable {
       resolved_type.with_option()
     } else {
@@ -212,6 +225,24 @@ impl FieldConverter {
     } else {
       field
     }
+  }
+
+  fn apply_zero_copy_transform(&self, mut type_ref: TypeRef) -> TypeRef {
+    if !self.context.config().zero_copy_enabled() {
+      return type_ref;
+    }
+
+    let is_string = matches!(type_ref.base_type, RustPrimitive::String);
+    let is_value = matches!(type_ref.base_type, RustPrimitive::Value);
+    let is_hashmap = type_ref.base_type.to_string().starts_with("std::collections::HashMap<String,");
+
+    if is_string || is_value || is_hashmap {
+      type_ref.base_type = RustPrimitive::RawValue;
+      type_ref.is_array = false;
+      type_ref.boxed = false;
+    }
+
+    type_ref
   }
 
   fn customization_for_type(&self, type_ref: &TypeRef) -> Option<SerdeAsFieldAttr> {
@@ -254,6 +285,10 @@ impl FieldConverter {
     schema: &ObjectSchema,
     type_ref: &TypeRef,
   ) -> Vec<ValidationAttribute> {
+    if matches!(type_ref.base_type, RustPrimitive::RawValue) {
+      return vec![];
+    }
+
     let mut attrs = Vec::with_capacity(3);
 
     if let Some(ref format) = schema.format {

@@ -26,6 +26,7 @@ pub(crate) struct TypeFragment {
   regex_lookup: BTreeMap<RegexKey, ConstToken>,
   visibility: Visibility,
   target: GenerationTarget,
+  lifetime_types: Rc<BTreeSet<String>>,
 }
 
 impl TypeFragment {
@@ -34,12 +35,14 @@ impl TypeFragment {
     regex_lookup: BTreeMap<RegexKey, ConstToken>,
     visibility: Visibility,
     target: GenerationTarget,
+    lifetime_types: Rc<BTreeSet<String>>,
   ) -> Self {
     Self {
       rust_type,
       regex_lookup,
       visibility,
       target,
+      lifetime_types,
     }
   }
 }
@@ -48,12 +51,12 @@ impl ToTokens for TypeFragment {
   fn to_tokens(&self, tokens: &mut TokenStream) {
     let ts = match &self.rust_type {
       RustType::Struct(def) => {
-        StructFragment::new(def.clone(), self.regex_lookup.clone(), self.visibility, self.target).into_token_stream()
+        StructFragment::new(def.clone(), self.regex_lookup.clone(), self.visibility, self.target, self.lifetime_types.clone()).into_token_stream()
       }
-      RustType::Enum(def) => EnumFragment::new(def.clone(), self.visibility, self.target).into_token_stream(),
+      RustType::Enum(def) => EnumFragment::new(def.clone(), self.visibility, self.target, self.lifetime_types.clone()).into_token_stream(),
       RustType::TypeAlias(def) => TypeAliasFragment::new(def.clone(), self.visibility).into_token_stream(),
       RustType::DiscriminatedEnum(def) => {
-        DiscriminatedEnumFragment::new(def.clone(), self.visibility).into_token_stream()
+        DiscriminatedEnumFragment::new(def.clone(), self.visibility, self.lifetime_types.clone()).into_token_stream()
       }
       RustType::ResponseEnum(def) => match self.target {
         GenerationTarget::Server => AxumResponseEnumFragment::new(self.visibility, def.clone()).into_token_stream(),
@@ -71,6 +74,7 @@ pub(crate) struct TypesFragment {
   uses: BTreeSet<String>,
   visibility: Visibility,
   target: GenerationTarget,
+  lifetime_types: Rc<BTreeSet<String>>,
 }
 
 impl TypesFragment {
@@ -80,6 +84,7 @@ impl TypesFragment {
     uses: BTreeSet<String>,
     visibility: Visibility,
     target: GenerationTarget,
+    lifetime_types: Rc<BTreeSet<String>>,
   ) -> Self {
     Self {
       rust_types,
@@ -87,6 +92,7 @@ impl TypesFragment {
       uses,
       visibility,
       target,
+      lifetime_types,
     }
   }
 }
@@ -100,7 +106,7 @@ impl ToTokens for TypesFragment {
     let type_tokens = self
       .rust_types
       .iter()
-      .map(|ty| TypeFragment::new(ty.clone(), regex_result.lookup.clone(), self.visibility, self.target))
+      .map(|ty| TypeFragment::new(ty.clone(), regex_result.lookup.clone(), self.visibility, self.target, self.lifetime_types.clone()))
       .collect::<Vec<_>>();
 
     let ts = quote! {

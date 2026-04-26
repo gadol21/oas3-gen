@@ -71,12 +71,22 @@ impl RustType {
     variants: Vec<VariantDef>,
     methods: Vec<EnumMethod>,
   ) -> Self {
+    let all_externally_tagged = variants.iter().all(|v| {
+      v.serde_attrs.iter().any(|a| matches!(a, SerdeAttribute::Rename(_)))
+    });
+
+    let serde_attrs = if all_externally_tagged {
+      vec![]
+    } else {
+      vec![SerdeAttribute::Untagged]
+    };
+
     RustType::Enum(
       EnumDef::builder()
         .name(EnumToken::from_raw(name))
         .docs(docs)
         .variants(variants)
-        .serde_attrs(vec![SerdeAttribute::Untagged])
+        .serde_attrs(serde_attrs)
         .case_insensitive(false)
         .methods(methods)
         .build(),
