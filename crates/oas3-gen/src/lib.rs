@@ -15,7 +15,9 @@ pub use generator::{
   mode::{ClientModMode, ClientMode, GenerationMode, ServerModMode, TypesMode},
   orchestrator::{GeneratedFinalOutput, Orchestrator},
 };
-pub use utils::spec::{SpecFormat, SpecLoader};
+pub use utils::spec::SpecFormat;
+#[cfg(feature = "async")]
+pub use utils::spec::SpecLoader;
 
 #[cfg(test)]
 mod tests;
