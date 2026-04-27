@@ -8,6 +8,8 @@ use quote::{ToTokens, quote};
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SerdeAttribute {
   Alias(String),
+  Borrow,
+  BoundDeserializeLifetime,
   Default,
   DenyUnknownFields,
   Flatten,
@@ -21,6 +23,8 @@ impl ToTokens for SerdeAttribute {
   fn to_tokens(&self, tokens: &mut TokenStream) {
     let attr = match self {
       Self::Alias(name) => quote! { alias = #name },
+      Self::Borrow => quote! { borrow },
+      Self::BoundDeserializeLifetime => quote! { bound(deserialize = "'de: 'a") },
       Self::Default => quote! { default },
       Self::DenyUnknownFields => quote! { deny_unknown_fields },
       Self::Flatten => quote! { flatten },

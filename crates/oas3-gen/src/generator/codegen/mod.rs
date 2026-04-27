@@ -180,6 +180,7 @@ pub struct SchemaCodeGenerator {
   visibility: Visibility,
   source_path: String,
   gen_version: String,
+  lifetime_types: Rc<BTreeSet<String>>,
 }
 
 #[bon::bon]
@@ -197,6 +198,18 @@ impl SchemaCodeGenerator {
     source_path: String,
     gen_version: String,
   ) -> Self {
+    let lifetime_types = rust_types
+      .iter()
+      .filter(|t| match t {
+        RustType::Struct(d) => d.requires_lifetime,
+        RustType::Enum(d) => d.requires_lifetime,
+        RustType::DiscriminatedEnum(d) => d.requires_lifetime,
+        RustType::ResponseEnum(d) => d.requires_lifetime,
+        RustType::TypeAlias(d) => d.requires_lifetime,
+      })
+      .map(|t| t.type_name().to_string())
+      .collect::<BTreeSet<_>>();
+
     Self {
       config,
       rust_types: Rc::new(rust_types),
@@ -208,6 +221,7 @@ impl SchemaCodeGenerator {
       visibility,
       source_path,
       gen_version,
+      lifetime_types: Rc::new(lifetime_types),
     }
   }
 }
@@ -271,6 +285,7 @@ impl SchemaCodeGenerator {
       (*self.uses).clone(),
       self.visibility,
       self.config.target,
+      self.lifetime_types.clone(),
     )
   }
 
@@ -291,6 +306,9 @@ impl SchemaCodeGenerator {
 
   /// Formats tokens into source code with a file header (no lint attributes).
   fn format_tokens(&self, fragment: &impl ToTokens) -> anyhow::Result<String> {
+    if self.config.skip_file_header {
+      return Ok(format(&fragment.to_token_stream())? + "\n");
+    }
     generate_source(
       &fragment.to_token_stream(),
       &self.client,
@@ -302,6 +320,9 @@ impl SchemaCodeGenerator {
 
   /// Formats tokens into source code with a file header and default lint configuration.
   fn format_tokens_with_lints(&self, fragment: &impl ToTokens) -> anyhow::Result<String> {
+    if self.config.skip_file_header {
+      return Ok(format(&fragment.to_token_stream())? + "\n");
+    }
     let lints = GlobalLintsNode::default();
     generate_source(
       &fragment.to_token_stream(),

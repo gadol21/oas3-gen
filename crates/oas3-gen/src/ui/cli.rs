@@ -143,6 +143,10 @@ pub struct GenerateCommand {
   #[arg(long, default_value_t = false, display_order = 17, help_heading = "Code Generation")]
   pub doc_format: bool,
 
+  /// Enable zero-copy deserialization using &'a RawValue for String and HashMap fields
+  #[arg(long, default_value_t = false, display_order = 18, help_heading = "Code Generation")]
+  pub zero_copy: bool,
+
   /// Include only the specified comma-separated operation IDs
   #[arg(
     group = "filter",

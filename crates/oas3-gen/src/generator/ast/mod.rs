@@ -93,6 +93,8 @@ pub struct DiscriminatedEnumDef {
   pub serde_mode: SerdeMode,
   #[builder(default)]
   pub methods: Vec<EnumMethod>,
+  #[builder(default)]
+  pub requires_lifetime: bool,
 }
 
 impl DiscriminatedEnumDef {
@@ -166,6 +168,8 @@ pub struct ResponseEnumDef {
   pub request_type: Option<StructToken>,
   #[builder(default)]
   pub try_from: Vec<ImplTryFromNode>,
+  #[builder(default)]
+  pub requires_lifetime: bool,
 }
 
 /// Top-level Rust type representation
@@ -186,6 +190,39 @@ impl RustType {
       RustType::TypeAlias(def) => def.name.to_atom(),
       RustType::DiscriminatedEnum(def) => def.name.to_atom(),
       RustType::ResponseEnum(def) => def.name.to_atom(),
+    }
+  }
+
+  pub fn set_requires_lifetime_if_needed(&mut self) {
+    use super::ast::types::RustPrimitive;
+
+    let needs = |base: &RustPrimitive| matches!(base, RustPrimitive::RawValue);
+
+    match self {
+      RustType::Struct(def) => {
+        def.requires_lifetime = def.fields.iter().any(|f| needs(&f.rust_type.base_type));
+      }
+      RustType::Enum(def) => {
+        def.requires_lifetime = def.variants.iter().any(|v| {
+          v.content
+            .tuple_types()
+            .is_some_and(|types| types.iter().any(|t| needs(&t.base_type)))
+        });
+      }
+      RustType::DiscriminatedEnum(def) => {
+        let has_lifetime = def.variants.iter().any(|v| needs(&v.type_name.base_type))
+          || def.fallback.as_ref().is_some_and(|v| needs(&v.type_name.base_type));
+        def.requires_lifetime = has_lifetime;
+      }
+      RustType::ResponseEnum(def) => {
+        def.requires_lifetime = def
+          .variants
+          .iter()
+          .any(|v| v.schema_type.as_ref().is_some_and(|t| needs(&t.base_type)));
+      }
+      RustType::TypeAlias(def) => {
+        def.requires_lifetime = needs(&def.target.base_type);
+      }
     }
   }
 
@@ -457,6 +494,8 @@ pub struct StructDef {
   /// Additional traits to derive beyond the standard set (e.g., Builder), controlled by config options
   #[builder(default)]
   pub additional_derives: BTreeSet<DeriveTrait>,
+  #[builder(default)]
+  pub requires_lifetime: bool,
 }
 
 impl StructDef {
@@ -579,6 +618,8 @@ pub struct EnumDef {
   pub serde_mode: SerdeMode,
   #[builder(default)]
   pub generate_display: bool,
+  #[builder(default)]
+  pub requires_lifetime: bool,
 }
 
 impl EnumDef {
@@ -720,4 +761,6 @@ pub struct TypeAliasDef {
   pub name: TypeAliasToken,
   pub docs: Documentation,
   pub target: TypeRef,
+  #[builder(default)]
+  pub requires_lifetime: bool,
 }

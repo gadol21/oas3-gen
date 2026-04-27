@@ -98,7 +98,7 @@ impl RelaxedEnumBuilder {
     let (known_enum_name, inner_enum_type) =
       self.resolve_or_create_known_enum(&base_name, known_variants.to_owned(), &cache_key);
 
-    let methods = if self.context.config().no_helpers() {
+    let methods = if self.context.config().no_helpers() || self.context.config().zero_copy_enabled() {
       vec![]
     } else {
       Self::build_known_value_constructors(&base_name, &known_enum_name, known_variants)

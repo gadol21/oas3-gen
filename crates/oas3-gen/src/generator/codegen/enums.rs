@@ -1,3 +1,5 @@
+use std::{collections::BTreeSet, rc::Rc};
+
 use proc_macro2::TokenStream;
 use quote::{ToTokens, TokenStreamExt as _, quote};
 
@@ -8,8 +10,8 @@ use super::{
 use crate::generator::{
   ast::{
     DeriveTrait, DerivesProvider, DiscriminatedEnumDef, DiscriminatedVariant, EnumDef, EnumMethod, EnumMethodKind,
-    EnumToken, EnumVariantToken, FieldDef, ResponseEnumDef, ResponseVariant, SerdeMode, TypeRef, VariantContent,
-    VariantDef,
+    EnumToken, EnumVariantToken, FieldDef, ResponseEnumDef, ResponseVariant, RustPrimitive, SerdeAttribute, SerdeMode,
+    TypeRef, VariantContent, VariantDef,
   },
   codegen::{
     attributes::DeriveAttribute,
@@ -168,7 +170,7 @@ pub(crate) struct EnumValueVariantFragment {
 }
 
 impl EnumValueVariantFragment {
-  pub(crate) fn new(variant: VariantDef, idx: usize, has_serde_derive: bool) -> Self {
+  pub(crate) fn new(variant: VariantDef, idx: usize, has_serde_derive: bool, requires_lifetime: bool, lifetime_types: &BTreeSet<String>) -> Self {
     let docs = variant.docs.to_token_stream();
     let serde_attrs = if has_serde_derive {
       generate_serde_attrs(&variant.serde_attrs)
@@ -176,9 +178,23 @@ impl EnumValueVariantFragment {
       quote! {}
     };
     let deprecated = generate_deprecated_attr(variant.deprecated);
-    let default_attr = (idx == 0).then(|| quote! { #[default] });
+    let default_attr = if requires_lifetime { None } else { (idx == 0).then(|| quote! { #[default] }) };
     let content = variant.content.tuple_types().map(|types| {
-      let type_tokens = types.iter().map(|t| quote! { #t }).collect::<Vec<_>>();
+      let type_tokens = types
+        .iter()
+        .map(|t| {
+          if let RustPrimitive::Custom(ref name) = t.base_type {
+            if lifetime_types.contains(name.as_ref()) {
+              let lifetimed = TypeRef {
+                base_type: RustPrimitive::Custom(format!("{name}<'a>").into()),
+                ..t.clone()
+              };
+              return lifetimed.to_token_stream();
+            }
+          }
+          t.to_token_stream()
+        })
+        .collect::<Vec<_>>();
       quote! { ( #(#type_tokens),* ) }
     });
 
@@ -448,14 +464,16 @@ pub(crate) struct EnumFragment {
   def: EnumDef,
   vis: Visibility,
   target: GenerationTarget,
+  lifetime_types: Rc<BTreeSet<String>>,
 }
 
 impl EnumFragment {
-  pub(crate) fn new(def: EnumDef, visibility: Visibility, target: GenerationTarget) -> Self {
+  pub(crate) fn new(def: EnumDef, visibility: Visibility, target: GenerationTarget, lifetime_types: Rc<BTreeSet<String>>) -> Self {
     Self {
       def,
       vis: visibility,
       target,
+      lifetime_types,
     }
   }
 }
@@ -467,7 +485,6 @@ impl ToTokens for EnumFragment {
 
     let derives = DeriveAttribute::new(self.def.derives());
     let outer_attrs = generate_outer_attrs(&self.def.outer_attrs);
-    let serde_attrs = generate_serde_attrs(&self.def.serde_attrs);
 
     let has_serde_derive = self
       .def
@@ -480,19 +497,31 @@ impl ToTokens for EnumFragment {
       .variants
       .iter()
       .enumerate()
-      .map(|(idx, v)| EnumValueVariantFragment::new(v.clone(), idx, has_serde_derive))
+      .map(|(idx, v)| EnumValueVariantFragment::new(v.clone(), idx, has_serde_derive, self.def.requires_lifetime, &self.lifetime_types))
       .collect();
     let variants = EnumVariants::new(variants);
 
     let methods = EnumMethodsImplFragment::new(name.clone(), self.vis, self.def.methods.clone());
 
     let vis = &self.vis;
+    let generics = if self.def.requires_lifetime {
+      quote! { <'a> }
+    } else {
+      quote! {}
+    };
+
+    let mut serde_attr_list = self.def.serde_attrs.clone();
+    if self.def.requires_lifetime {
+      serde_attr_list.push(SerdeAttribute::BoundDeserializeLifetime);
+    }
+    let serde_attrs = generate_serde_attrs(&serde_attr_list);
+
     let enum_def = quote! {
       #docs
       #outer_attrs
       #derives
       #serde_attrs
-      #vis enum #name {
+      #vis enum #name #generics {
         #variants
       }
       #methods
@@ -539,13 +568,15 @@ impl ToTokens for EnumFragment {
 pub(crate) struct DiscriminatedVariantFragment {
   variant_name: EnumVariantToken,
   type_name: TypeRef,
+  lifetime_types: Rc<BTreeSet<String>>,
 }
 
 impl DiscriminatedVariantFragment {
-  pub(crate) fn new(variant: DiscriminatedVariant) -> Self {
+  pub(crate) fn new(variant: DiscriminatedVariant, lifetime_types: Rc<BTreeSet<String>>) -> Self {
     Self {
       variant_name: variant.variant_name,
       type_name: variant.type_name,
+      lifetime_types,
     }
   }
 }
@@ -553,9 +584,21 @@ impl DiscriminatedVariantFragment {
 impl ToTokens for DiscriminatedVariantFragment {
   fn to_tokens(&self, tokens: &mut TokenStream) {
     let variant_name = &self.variant_name;
-    let type_name = &self.type_name;
+    let type_tokens: TokenStream = if let RustPrimitive::Custom(ref name) = self.type_name.base_type {
+      if self.lifetime_types.contains(name.as_ref()) {
+        let lifetimed = TypeRef {
+          base_type: RustPrimitive::Custom(format!("{name}<'a>").into()),
+          ..self.type_name.clone()
+        };
+        lifetimed.to_token_stream()
+      } else {
+        self.type_name.to_token_stream()
+      }
+    } else {
+      self.type_name.to_token_stream()
+    };
 
-    let ts = quote! { #variant_name(#type_name) };
+    let ts = quote! { #variant_name(#type_tokens) };
     tokens.extend(ts);
   }
 }
@@ -772,11 +815,12 @@ impl ToTokens for DiscriminatorConstImplFragment {
 pub(crate) struct DiscriminatedEnumFragment {
   def: DiscriminatedEnumDef,
   vis: Visibility,
+  lifetime_types: Rc<BTreeSet<String>>,
 }
 
 impl DiscriminatedEnumFragment {
-  pub(crate) fn new(def: DiscriminatedEnumDef, visibility: Visibility) -> Self {
-    Self { def, vis: visibility }
+  pub(crate) fn new(def: DiscriminatedEnumDef, visibility: Visibility, lifetime_types: Rc<BTreeSet<String>>) -> Self {
+    Self { def, vis: visibility, lifetime_types }
   }
 }
 
@@ -788,17 +832,22 @@ impl ToTokens for DiscriminatedEnumFragment {
     let variants = self
       .def
       .all_variants()
-      .map(|v| DiscriminatedVariantFragment::new(v.clone()))
+      .map(|v| DiscriminatedVariantFragment::new(v.clone(), self.lifetime_types.clone()))
       .collect::<Vec<DiscriminatedVariantFragment>>();
     let variants = EnumVariants::new(variants);
 
     let derives = DeriveAttribute::new(self.def.derives());
 
     let vis = &self.vis;
+    let generics = if self.def.requires_lifetime {
+      quote! { <'a> }
+    } else {
+      quote! {}
+    };
     let enum_def = quote! {
       #docs
       #derives
-      #vis enum #name {
+      #vis enum #name #generics {
         #variants
       }
     };

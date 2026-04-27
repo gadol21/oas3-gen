@@ -25,7 +25,7 @@ pub(crate) static FORBIDDEN_IDENTIFIERS: LazyLock<HashSet<&str>> = LazyLock::new
 
 static PRELUDE_TYPE_NAMES: LazyLock<HashSet<&str>> = LazyLock::new(|| {
   [
-    "Clone", "Copy", "Display", "Option", "Result", "Send", "Sync", "Type", "Vec",
+    "Clone", "Copy", "Display", "Option", "Result", "Self", "Send", "Sync", "Type", "Vec",
   ]
   .into_iter()
   .collect()
@@ -245,10 +245,6 @@ pub(crate) fn to_rust_type_name(name: &str) -> String {
 
   if has_leading_minus {
     ident = format!("Negative{ident}");
-  }
-
-  if ident == "Self" {
-    return "r#Self".to_string();
   }
 
   if PRELUDE_TYPE_NAMES.contains(ident.as_str()) {

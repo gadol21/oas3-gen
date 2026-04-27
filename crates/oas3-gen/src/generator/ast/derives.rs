@@ -47,10 +47,13 @@ pub trait DerivesProvider {
 
 impl DerivesProvider for StructDef {
   fn derives(&self) -> BTreeSet<DeriveTrait> {
-    let mut derives = BTreeSet::from([DeriveTrait::Debug, DeriveTrait::Clone, DeriveTrait::Default]);
+    let mut derives = BTreeSet::from([DeriveTrait::Debug, DeriveTrait::Clone]);
 
-    if self.kind != StructKind::OperationRequest {
-      derives.insert(DeriveTrait::PartialEq);
+    if !self.requires_lifetime {
+      derives.insert(DeriveTrait::Default);
+      if self.kind != StructKind::OperationRequest {
+        derives.insert(DeriveTrait::PartialEq);
+      }
     }
 
     if self.is_serializable() == SerdeImpl::Derive {
@@ -85,12 +88,12 @@ impl DerivesProvider for StructDef {
 
 impl DerivesProvider for EnumDef {
   fn derives(&self) -> BTreeSet<DeriveTrait> {
-    let mut derives = BTreeSet::from([
-      DeriveTrait::Debug,
-      DeriveTrait::Clone,
-      DeriveTrait::PartialEq,
-      DeriveTrait::Default,
-    ]);
+    let mut derives = BTreeSet::from([DeriveTrait::Debug, DeriveTrait::Clone]);
+
+    if !self.requires_lifetime {
+      derives.insert(DeriveTrait::PartialEq);
+      derives.insert(DeriveTrait::Default);
+    }
 
     if self.is_simple() {
       derives.insert(DeriveTrait::Eq);
@@ -137,7 +140,11 @@ impl EnumDef {
 
 impl DerivesProvider for DiscriminatedEnumDef {
   fn derives(&self) -> BTreeSet<DeriveTrait> {
-    BTreeSet::from([DeriveTrait::Debug, DeriveTrait::Clone, DeriveTrait::PartialEq])
+    let mut derives = BTreeSet::from([DeriveTrait::Debug, DeriveTrait::Clone]);
+    if !self.requires_lifetime {
+      derives.insert(DeriveTrait::PartialEq);
+    }
+    derives
   }
 
   fn is_serializable(&self) -> SerdeImpl {

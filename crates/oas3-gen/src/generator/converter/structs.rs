@@ -69,12 +69,19 @@ impl StructConverter {
     let fields = field_result.result;
 
     let deny_unknown = matches!(&schema.additional_properties, Some(Schema::Boolean(b)) if !b.0);
-    let serde_attrs = fields.struct_serde_attrs(
+    let serde_attrs = if self.context.config().zero_copy_enabled() {
       deny_unknown
         .then_some(SerdeAttribute::DenyUnknownFields)
         .into_iter()
-        .collect(),
-    );
+        .collect()
+    } else {
+      fields.struct_serde_attrs(
+        deny_unknown
+          .then_some(SerdeAttribute::DenyUnknownFields)
+          .into_iter()
+          .collect(),
+      )
+    };
 
     let enable_builders = matches!(kind, StructKind::Schema) && self.context.config().enable_builders();
     let additional_derives = if enable_builders {

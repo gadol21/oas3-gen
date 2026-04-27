@@ -11,8 +11,13 @@ readme.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
+[[bin]]
+name = "oas3-gen"
+required-features = ["async"]
+
 [features]
-default = ["quick-xml", "reqwest", "eventsource"]
+default = ["async", "quick-xml", "reqwest", "eventsource"]
+async = ["dep:fmmap", "dep:tokio"]
 reqwest = []
 eventsource = ["reqwest"]
 quick-xml = []
@@ -28,7 +33,7 @@ clap.workspace = true
 comfy-table.workspace = true
 crossterm.workspace = true
 cruet.workspace = true
-fmmap.workspace = true
+fmmap = { workspace = true, optional = true }
 http.workspace = true
 indexmap.workspace = true
 inflections.workspace = true
@@ -48,7 +53,7 @@ serde.workspace = true
 string_cache.workspace = true
 strum.workspace = true
 syn.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, optional = true }
 
 [dev-dependencies]
 axum.workspace = true

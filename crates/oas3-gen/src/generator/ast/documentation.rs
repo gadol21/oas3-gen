@@ -1,11 +1,12 @@
-use std::{process::Stdio, sync::OnceLock};
+use std::sync::OnceLock;
 
 use proc_macro2::TokenStream;
 use quote::{ToTokens, quote};
-use tokio::{process::Command, runtime::Handle};
 
+#[allow(dead_code)]
 static DOC_FORMAT_ENABLED: OnceLock<bool> = OnceLock::new();
 
+#[allow(dead_code)]
 pub fn init_doc_format(enabled: bool) {
   DOC_FORMAT_ENABLED.set(enabled).ok();
 }
@@ -95,17 +96,21 @@ impl Documentation {
   }
 
   fn process_doc_text(input: &str) -> String {
+    #[cfg(feature = "async")]
     if *DOC_FORMAT_ENABLED.get().unwrap_or(&false) {
-      Self::wrap_format_with_mdformat(input).replace("\\n", "\n")
-    } else {
-      input.replace("\\n", "\n")
+      return Self::wrap_format_with_mdformat(input).replace("\\n", "\n");
     }
+    input.replace("\\n", "\n")
   }
 
+  #[cfg(feature = "async")]
   fn wrap_format_with_mdformat(input: &str) -> String {
-    tokio::task::block_in_place(|| Handle::current().block_on(Self::build_async_format_with_mdformat(input)))
+    tokio::task::block_in_place(|| {
+      tokio::runtime::Handle::current().block_on(Self::build_async_format_with_mdformat(input))
+    })
   }
 
+  #[cfg(feature = "async")]
   pub(crate) async fn build_async_format_with_mdformat(input: &str) -> String {
     if input.len() > 100 {
       Self::format_with_mdformat(input).await.unwrap_or_default()
@@ -114,10 +119,13 @@ impl Documentation {
     }
   }
 
+  #[cfg(feature = "async")]
   async fn format_with_mdformat(input: &str) -> anyhow::Result<String> {
+    use std::process::Stdio;
+
     use tokio::io::AsyncWriteExt;
 
-    let mut child = Command::new("mdformat")
+    let mut child = tokio::process::Command::new("mdformat")
       .args(["--wrap", "100"])
       .args(["--end-of-line", "lf"])
       .arg("-")

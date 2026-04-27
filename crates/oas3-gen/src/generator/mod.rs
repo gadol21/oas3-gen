@@ -1,7 +1,7 @@
 #![allow(clippy::struct_excessive_bools)]
 
 pub(crate) mod ast;
-pub(crate) mod codegen;
+pub mod codegen;
 pub(crate) mod converter;
 pub mod metrics;
 pub mod mode;
@@ -13,7 +13,7 @@ pub(crate) mod schema_registry;
 
 pub use converter::{
   CodegenConfig, EnumCasePolicy, EnumDeserializePolicy, EnumHelperPolicy, GenerationTarget, HeaderScope, ODataPolicy,
-  SchemaScope,
+  SchemaScope, ZeroCopyPolicy,
 };
 pub use mode::{ClientModMode, ClientMode, GenerationMode, ServerModMode, TypesMode};
 
