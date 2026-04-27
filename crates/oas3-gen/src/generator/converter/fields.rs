@@ -189,7 +189,9 @@ impl FieldConverter {
       || (is_discriminator && !discriminator_has_enum)
       || is_odata_optional;
 
-    let resolved_type = self.apply_zero_copy_transform(resolved_type);
+    let transformed = self.apply_zero_copy_transform(resolved_type.clone());
+    let pre_zerocopy_type = (transformed.base_type != resolved_type.base_type).then_some(resolved_type);
+    let resolved_type = transformed;
 
     let final_type = if should_be_optional && !resolved_type.nullable {
       resolved_type.with_option()
@@ -209,7 +211,7 @@ impl FieldConverter {
 
     let serde_as_attr = self.customization_for_type(&final_type);
 
-    let field = FieldDef::builder()
+    let mut field = FieldDef::builder()
       .schema(prop_schema)
       .maybe_default_value(default_value)
       .maybe_serde_as_attr(serde_as_attr)
@@ -218,6 +220,7 @@ impl FieldConverter {
       .serde_attrs(serde_attrs)
       .validation_attrs(validation_attrs)
       .build();
+    field.pre_zerocopy_type = pre_zerocopy_type;
 
     let should_hide = is_discriminator && !discriminator_has_enum;
     if should_hide {

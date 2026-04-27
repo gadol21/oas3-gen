@@ -33,6 +33,8 @@ pub struct FieldDef {
   pub multiple_of: Option<serde_json::Number>,
   #[builder(into)]
   pub original_name: Option<String>,
+  #[builder(skip)]
+  pub pre_zerocopy_type: Option<TypeRef>,
 }
 
 impl FieldDef {

@@ -56,7 +56,7 @@ impl StructFragment {
 impl ToTokens for StructFragment {
   fn to_tokens(&self, tokens: &mut TokenStream) {
     let definition = StructDefinitionFragment::new(self.def.clone(), self.regex_lookup.clone(), self.visibility, self.lifetime_types.clone());
-    let impl_block = StructImplBlockFragment::new(self.def.clone(), self.visibility);
+    let impl_block = StructImplBlockFragment::new(self.def.clone(), self.visibility, self.lifetime_types.clone());
     let header_map = HeaderMapFragment::new(self.def.clone());
 
     tokens.extend(quote! {
@@ -251,32 +251,30 @@ impl ToTokens for StructFieldFragment {
 pub(crate) struct StructImplBlockFragment {
   def: StructDef,
   visibility: Visibility,
+  lifetime_types: Rc<BTreeSet<String>>,
 }
 
 impl StructImplBlockFragment {
-  pub(crate) fn new(def: StructDef, visibility: Visibility) -> Self {
-    Self { def, visibility }
+  pub(crate) fn new(def: StructDef, visibility: Visibility, lifetime_types: Rc<BTreeSet<String>>) -> Self {
+    Self { def, visibility, lifetime_types }
   }
 }
 
 impl ToTokens for StructImplBlockFragment {
   fn to_tokens(&self, tokens: &mut TokenStream) {
-    if self.def.methods.is_empty() {
-      return;
-    }
-
     let name = &self.def.name;
-    let (builder_methods, other_methods): (Vec<_>, Vec<_>) = self
-      .def
-      .methods
-      .iter()
-      .partition(|m| matches!(m.kind, MethodKind::Builder { .. }));
 
     let (impl_generics, type_generics) = if self.def.requires_lifetime {
       (quote! { <'a> }, quote! { <'a> })
     } else {
       (quote! {}, quote! {})
     };
+
+    let (builder_methods, other_methods): (Vec<_>, Vec<_>) = self
+      .def
+      .methods
+      .iter()
+      .partition(|m| matches!(m.kind, MethodKind::Builder { .. }));
 
     if !builder_methods.is_empty() {
       let methods: Vec<TokenStream> = builder_methods
@@ -292,15 +290,52 @@ impl ToTokens for StructImplBlockFragment {
       });
     }
 
-    if !other_methods.is_empty() {
-      let methods: Vec<TokenStream> = other_methods
-        .into_iter()
-        .map(|m| StructMethodFragment::new(m.clone(), self.visibility).into_token_stream())
-        .collect();
+    let zerocopy_getters = self
+      .def
+      .fields
+      .iter()
+      .filter_map(|f| {
+        let original = f.pre_zerocopy_type.as_ref()?;
+        let field_name = &f.name;
 
+        let is_string = matches!(original.base_type, RustPrimitive::String);
+        let return_type_str = if is_string {
+          "std::borrow::Cow<'a, str>".to_string()
+        } else {
+          let mut s = original.to_rust_type();
+          for lt in self.lifetime_types.iter() {
+            s = s.replace(lt, &format!("{lt}<'a>"));
+          }
+          s
+        };
+        let return_type: syn::Type = syn::parse_str(&return_type_str).ok()?;
+
+        if f.rust_type.nullable {
+          Some(quote! {
+            pub fn #field_name(&self) -> serde_json::Result<Option<#return_type>> {
+              self.#field_name.map(|v| serde_json::from_str(v.get())).transpose()
+            }
+          })
+        } else {
+          Some(quote! {
+            pub fn #field_name(&self) -> serde_json::Result<#return_type> {
+              serde_json::from_str(self.#field_name.get())
+            }
+          })
+        }
+      })
+      .collect::<Vec<_>>();
+
+    let all_other: Vec<TokenStream> = other_methods
+      .into_iter()
+      .map(|m| StructMethodFragment::new(m.clone(), self.visibility).into_token_stream())
+      .chain(zerocopy_getters)
+      .collect();
+
+    if !all_other.is_empty() {
       tokens.extend(quote! {
         impl #impl_generics #name #type_generics {
-          #(#methods)*
+          #(#all_other)*
         }
       });
     }
